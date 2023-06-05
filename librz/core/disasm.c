@@ -1686,6 +1686,8 @@ static void printVarSummary(RzDisasmState *ds, RzList /*<RzAnalysisVar *>*/ *lis
 			case RZ_ANALYSIS_VAR_STORAGE_REG:
 				reg_args++;
 				break;
+			default:
+				break;
 			}
 		} else {
 			switch (var->storage.type) {
@@ -1694,6 +1696,8 @@ static void printVarSummary(RzDisasmState *ds, RzList /*<RzAnalysisVar *>*/ *lis
 				break;
 			case RZ_ANALYSIS_VAR_STORAGE_REG:
 				reg_vars++;
+				break;
+			default:
 				break;
 			}
 		}
@@ -1739,6 +1743,48 @@ static void printVarSummary(RzDisasmState *ds, RzList /*<RzAnalysisVar *>*/ *lis
 		reg_vars_color, reg_vars, COLOR_RESET(ds),
 		reg_args_color, reg_args, COLOR_RESET(ds));
 	ds_newline(ds);
+}
+
+static void ds_show_fn_var_line(RzDisasmState *ds, RzAnalysisFunction *f, RzAnalysisVar *var) {
+	static char spaces[32];
+	ds_begin_line(ds);
+	int idx;
+	memset(spaces, ' ', sizeof(spaces));
+	idx = 12 - strlen(var->name);
+	if (idx < 0) {
+		idx = 0;
+	}
+	spaces[idx] = 0;
+	ds_pre_xrefs(ds, false);
+
+	if (ds->show_flgoff) {
+		ds_print_offset(ds);
+	}
+	rz_cons_printf("%s; ", COLOR_ARG(ds, func_var));
+	ds_show_function_var(ds, f, var);
+	if (var->comment) {
+		rz_cons_printf("    %s; %s", COLOR(ds, comment), var->comment);
+	}
+	rz_cons_print(COLOR_RESET(ds));
+	ds_newline(ds);
+}
+
+static void ds_show_fn_vars_lines(RzDisasmState *ds, RzAnalysisFunction *f,
+	RzAnalysisFcnVarsCache *vars_cache) {
+	if (f->has_debuginfo) {
+		void **it;
+		rz_pvector_foreach (&f->vars, it) {
+			ds_show_fn_var_line(ds, f, *it);
+		}
+	} else {
+		RzList *all_vars = vars_cache->regvars;
+		rz_list_join(all_vars, vars_cache->stackvars);
+		RzAnalysisVar *var;
+		RzListIter *iter;
+		rz_list_foreach (all_vars, iter, var) {
+			ds_show_fn_var_line(ds, f, var);
+		}
+	}
 }
 
 static void ds_show_functions(RzDisasmState *ds) {
@@ -1843,33 +1889,7 @@ static void ds_show_functions(RzDisasmState *ds) {
 			rz_list_join(all_vars, vars_cache.regvars);
 			printVarSummary(ds, all_vars);
 		} else {
-			char spaces[32];
-			RzAnalysisVar *var;
-			RzListIter *iter;
-			RzList *all_vars = vars_cache.regvars;
-			rz_list_join(all_vars, vars_cache.stackvars);
-			rz_list_foreach (all_vars, iter, var) {
-				ds_begin_line(ds);
-				int idx;
-				memset(spaces, ' ', sizeof(spaces));
-				idx = 12 - strlen(var->name);
-				if (idx < 0) {
-					idx = 0;
-				}
-				spaces[idx] = 0;
-				ds_pre_xrefs(ds, false);
-
-				if (ds->show_flgoff) {
-					ds_print_offset(ds);
-				}
-				rz_cons_printf("%s; ", COLOR_ARG(ds, func_var));
-				ds_show_function_var(ds, f, var);
-				if (var->comment) {
-					rz_cons_printf("    %s; %s", COLOR(ds, comment), var->comment);
-				}
-				rz_cons_print(COLOR_RESET(ds));
-				ds_newline(ds);
-			}
+			ds_show_fn_vars_lines(ds, f, &vars_cache);
 		}
 	}
 	ds->show_varsum = o_varsum;

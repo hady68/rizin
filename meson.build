@@ -238,7 +238,7 @@ if r.returncode() == 1 and get_option('subprojects_check')
   error(subproject_clean_error_msg)
 endif
 
-libdemangle_options = ['default_library=static']
+libdemangle_options = ['default_library=static', 'werror=false']
 if get_option('use_gpl')
   libdemangle_options += 'use_gpl=true'
 else
@@ -431,6 +431,7 @@ foreach it : ccs
       ['__builtin_bswap16', '', []],
       ['__builtin_bswap32', '', []],
       ['__builtin_bswap64', '', []],
+      ['__builtin_clzll', '', []],
       ['posix_memalign', '#include <stdlib.h>', []],
       ['_aligned_malloc', '#include <malloc.h>', []],
     ]

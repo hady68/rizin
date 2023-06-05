@@ -11,25 +11,185 @@
 
 #define ACCESS_CMP(x, y) ((st64)((ut64)(x) - (ut64)((RzAnalysisVarAccess *)y)->offset))
 
-static bool storage_equals(RzAnalysisVarStorage *a, RzAnalysisVarStorage *b) {
+/**
+ * \brief Compare two RzAnalysisVarAccess objects.
+ * \param a RzAnalysisVarStorage object.
+ * \param b RzAnalysisVarStorage object.
+ * \return 0 if equal, negative if a < b, positive if a > b.
+ */
+RZ_API int rz_analysis_var_storage_cmp(const RzAnalysisVarStorage *a, const RzAnalysisVarStorage *b) {
+	rz_return_val_if_fail(a && b, 0);
+	if (a->type != b->type) {
+		return (int)a->type - (int)b->type;
+	}
 	switch (a->type) {
 	case RZ_ANALYSIS_VAR_STORAGE_REG:
 		// Hint: this strcmp could be optimized to pointer comparison if we add the requirement that a->reg and b->reg
 		// must come from the RzAnalysis.contpool.
-		return b->type == RZ_ANALYSIS_VAR_STORAGE_REG && !strcmp(a->reg, b->reg);
+		return strcmp(a->reg, b->reg);
 	case RZ_ANALYSIS_VAR_STORAGE_STACK:
-		return b->type == RZ_ANALYSIS_VAR_STORAGE_STACK && a->stack_off == b->stack_off;
+		return a->stack_off - b->stack_off;
+	case RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET: {
+		int cmp_reg = strcmp(a->reg, b->reg);
+		return cmp_reg == 0 ? (int)a->offset - (int)b->offset : cmp_reg;
+	}
+	case RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET:
+		return a->offset - b->offset;
+	case RZ_ANALYSIS_VAR_STORAGE_LOCLIST:
+	case RZ_ANALYSIS_VAR_STORAGE_EMPTY:
+	case RZ_ANALYSIS_VAR_STORAGE_COMPOSITE:
+	case RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING:
+	case RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR:
+		return a->DIE_offset - b->DIE_offset;
 	default:
 		rz_warn_if_reached();
-		return false;
+		return -1;
 	}
+}
+
+/**
+ * \brief Check if two RzAnalysisVarStorage objects are equal.
+ * \see rz_analysis_var_storage_cmp
+ * \param a RzAnalysisVarStorage object.
+ * \param b RzAnalysisVarStorage object.
+ * \return true if equal, false otherwise.
+ */
+RZ_API bool rz_analysis_var_storage_equals(const RzAnalysisVarStorage *a, const RzAnalysisVarStorage *b) {
+	rz_return_val_if_fail(a && b, 0);
+	return rz_analysis_var_storage_cmp(a, b) == 0;
+}
+
+static const char *var_storage_strings[] = {
+	[RZ_ANALYSIS_VAR_STORAGE_INVALID] = "invalid",
+	[RZ_ANALYSIS_VAR_STORAGE_EMPTY] = "empty",
+	[RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR] = "<decode error>",
+	[RZ_ANALYSIS_VAR_STORAGE_REG] = "reg",
+	[RZ_ANALYSIS_VAR_STORAGE_STACK] = "stack",
+	[RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET] = "reg offset",
+	[RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET] = "CFA",
+	[RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET] = "frame base",
+	[RZ_ANALYSIS_VAR_STORAGE_COMPOSITE] = "composite",
+	[RZ_ANALYSIS_VAR_STORAGE_LOCLIST] = "loclist",
+	[RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING] = "waiting",
+};
+
+RZ_API const char *rz_analysis_var_storage_type_to_string(RzAnalysisVarStorageType type) {
+	if (type >= RZ_ANALYSIS_VAR_STORAGE_END) {
+		return NULL;
+	}
+	return var_storage_strings[type];
+}
+
+RZ_API bool rz_analysis_var_storage_type_from_string(const char *type_str, RzAnalysisVarStorageType *type) {
+	for (int i = 1; i < RZ_ANALYSIS_VAR_STORAGE_END; ++i) {
+		if (rz_str_cmp(type_str, var_storage_strings[i], -1) == 0) {
+			*type = i;
+			return true;
+		}
+	}
+	return false;
+}
+
+static void strbuf_append_sign_hex(RzStrBuf *sb, st64 x) {
+	const char sign = x >= 0 ? '+' : '-';
+	rz_strbuf_appendf(sb, " %c 0x%" PFMT64x, sign, RZ_ABS(x));
+}
+
+RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAnalysisVarStorage *storage) {
+	switch (storage->type) {
+	case RZ_ANALYSIS_VAR_STORAGE_REG: {
+		rz_strbuf_append(sb, storage->reg);
+		break;
+	}
+	case RZ_ANALYSIS_VAR_STORAGE_STACK: {
+		rz_strbuf_append(sb, var_storage_strings[storage->type]);
+		strbuf_append_sign_hex(sb, storage->stack_off);
+		break;
+	}
+	case RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET:
+		rz_strbuf_append(sb, storage->reg);
+		strbuf_append_sign_hex(sb, storage->offset);
+		break;
+	case RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET:
+	case RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET:
+		rz_strbuf_append(sb, var_storage_strings[storage->type]);
+		strbuf_append_sign_hex(sb, storage->offset);
+		break;
+	case RZ_ANALYSIS_VAR_STORAGE_LOCLIST: {
+		rz_bin_dwarf_loclist_dump(&a->debug_info->encoding, a->debug_info->dwarf_register_mapping, storage->loclist, sb, "\n", "\t");
+		break;
+	}
+	case RZ_ANALYSIS_VAR_STORAGE_COMPOSITE: {
+		rz_bin_dwarf_location_composite_dump(&a->debug_info->encoding, a->debug_info->dwarf_register_mapping, storage->composite, sb, ", ", "");
+		break;
+	}
+	case RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING:
+	case RZ_ANALYSIS_VAR_STORAGE_EMPTY:
+		/// Omit storage information
+		rz_strbuf_append(sb, "...");
+		break;
+	case RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR:
+		rz_strbuf_append(sb, "<decoding error>");
+		break;
+	case RZ_ANALYSIS_VAR_STORAGE_INVALID:
+	case RZ_ANALYSIS_VAR_STORAGE_END:
+		rz_warn_if_reached();
+		break;
+	}
+}
+
+RZ_API char *rz_analysis_var_storage_to_string(RzAnalysis *a, const RzAnalysisVarStorage *storage) {
+	RzStrBuf *sb = rz_strbuf_new(NULL);
+	rz_analysis_var_storage_dump(a, sb, storage);
+	return rz_strbuf_drain(sb);
+}
+
+RZ_API void rz_analysis_var_storage_dump_pj(PJ *pj, const RzAnalysisVarStorage *storage) {
+	rz_return_if_fail(pj && storage);
+	const char *type = rz_analysis_var_storage_type_to_string(storage->type);
+	pj_k(pj, "storage");
+	pj_o(pj);
+	pj_ks(pj, "type", rz_str_get_null(type));
+	if (type) {
+		pj_k(pj, type);
+		switch (storage->type) {
+		case RZ_ANALYSIS_VAR_STORAGE_STACK:
+			pj_N(pj, storage->stack_off);
+			break;
+		case RZ_ANALYSIS_VAR_STORAGE_REG:
+			pj_s(pj, storage->reg);
+			break;
+		case RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET:
+			pj_o(pj);
+			pj_ks(pj, "reg", storage->reg);
+			pj_kN(pj, "offset", storage->offset);
+			pj_end(pj);
+			break;
+		case RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET:
+		case RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET:
+			pj_N(pj, storage->offset);
+			break;
+		case RZ_ANALYSIS_VAR_STORAGE_EMPTY:
+		case RZ_ANALYSIS_VAR_STORAGE_COMPOSITE:
+		case RZ_ANALYSIS_VAR_STORAGE_LOCLIST:
+		case RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING:
+		case RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR:
+			pj_kn(pj, var_storage_strings[storage->type], storage->DIE_offset);
+			break;
+		case RZ_ANALYSIS_VAR_STORAGE_INVALID:
+		case RZ_ANALYSIS_VAR_STORAGE_END:
+			rz_warn_if_reached();
+			break;
+		}
+	}
+	pj_end(pj);
 }
 
 /**
  * Ensure that the register name in \p stor comes from the const pool
  */
 static void storage_poolify(RzAnalysis *analysis, RzAnalysisVarStorage *stor) {
-	if (stor->type == RZ_ANALYSIS_VAR_STORAGE_REG) {
+	if (stor->type == RZ_ANALYSIS_VAR_STORAGE_REG || stor->type == RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET) {
 		stor->reg = rz_str_constpool_get(&analysis->constpool, stor->reg);
 	}
 }
@@ -52,14 +212,18 @@ static RZ_OWN RzType *var_type_default(RzAnalysis *analysis, int size) {
 	if (!typestr) {
 		typestr = "int32_t";
 	}
-	char *error_msg = NULL;
-	RzType *result = rz_type_parse_string_single(analysis->typedb->parser, typestr, &error_msg);
-	if (!result || error_msg) {
-		RZ_LOG_ERROR("Invalid var type: %s\n%s", typestr, error_msg);
-		free(error_msg);
+	RzType *type = RZ_NEW0(RzType);
+	if (!type) {
 		return NULL;
 	}
-	return result;
+	type->kind = RZ_TYPE_KIND_IDENTIFIER;
+	type->identifier.name = strdup(typestr);
+	if (!type->identifier.name) {
+		free(type);
+		return NULL;
+	}
+	type->identifier.kind = RZ_TYPE_IDENTIFIER_KIND_UNSPECIFIED;
+	return type;
 }
 
 /**
@@ -118,7 +282,7 @@ RZ_API RZ_BORROW RzAnalysisVar *rz_analysis_function_set_var(RzAnalysisFunction 
 	RZ_NONNULL RzAnalysisVarStorage *stor, RZ_BORROW RZ_NULLABLE const RzType *type, int size, RZ_NONNULL const char *name) {
 	rz_return_val_if_fail(fcn && name, NULL);
 	RzAnalysisVar *var = rz_analysis_function_get_var_byname(fcn, name);
-	if (var && !storage_equals(&var->storage, stor)) {
+	if (var && !rz_analysis_var_storage_equals(&var->storage, stor)) {
 		// var name already exists at a different kind+delta
 		RZ_LOG_WARN("var name %s already exists at a different kind+delta\n", name);
 		return NULL;
@@ -171,7 +335,7 @@ RZ_IPI RZ_BORROW RzAnalysisVar *rz_analysis_function_add_var_dwarf(RzAnalysisFun
 	void **it;
 	rz_pvector_foreach (&fcn->vars, it) {
 		RzAnalysisVar *p = *it;
-		if (!strcmp(p->name, var->name) || storage_equals(&p->storage, &var->storage)) {
+		if (!strcmp(p->name, var->name) || rz_analysis_var_storage_equals(&p->storage, &var->storage)) {
 			old = p;
 		}
 	}
@@ -349,7 +513,7 @@ RZ_API RZ_BORROW RzAnalysisVar *rz_analysis_function_get_var_at(RzAnalysisFuncti
 	void **it;
 	rz_pvector_foreach (&fcn->vars, it) {
 		RzAnalysisVar *var = *it;
-		if (storage_equals(&var->storage, stor)) {
+		if (rz_analysis_var_storage_equals(&var->storage, stor)) {
 			return var;
 		}
 	}
@@ -1386,25 +1550,15 @@ RZ_API void rz_analysis_fcn_vars_cache_fini(RzAnalysisFcnVarsCache *cache) {
 	rz_list_free(cache->stackvars);
 }
 
-static char *sig_from_debuginfo(RzAnalysis *analysis, char *fcn_name, const char *fcn_name_pre, const char *fcn_name_post) {
-	if (!rz_str_startswith(fcn_name, "dbg."))
+static char *sig_from_debuginfo(RzAnalysis *analysis, RZ_NONNULL RzAnalysisFunction *fcn, char *fcn_name, const char *fcn_name_pre, const char *fcn_name_post) {
+	if (!fcn->has_debuginfo || !rz_str_startswith(fcn_name, "dbg."))
 		return NULL;
 
-	const char *real_fcn_name = fcn_name + 4;
-	char *key = RZ_STR_ISNOTEMPTY(real_fcn_name) ? rz_str_newf("fcn.%s.sig", real_fcn_name) : NULL;
-	Sdb *sdb = sdb_ns(analysis->sdb, "dwarf", 0);
-	char *sig = sdb && key ? sdb_get(sdb, key, 0) : NULL;
-	free(key);
-	if (!sig)
+	RzCallable *callable = rz_type_func_get(analysis->typedb, fcn_name + 4);
+	if (!callable) {
 		return NULL;
-
-	char *highlighted_fcn_name = rz_str_newf("%s%s%s",
-		fcn_name_pre ? fcn_name_pre : "",
-		fcn_name,
-		fcn_name_post ? fcn_name_post : "");
-	char *highlighted_sig = rz_str_replace(sig, real_fcn_name, highlighted_fcn_name, false);
-	free(highlighted_fcn_name);
-	return highlighted_sig;
+	}
+	return rz_type_callable_as_string(analysis->typedb, callable);
 }
 
 /**
@@ -1425,7 +1579,7 @@ RZ_API char *rz_analysis_fcn_format_sig(RZ_NONNULL RzAnalysis *analysis, RZ_NONN
 		return NULL;
 	}
 
-	char *sig = sig_from_debuginfo(analysis, fcn_name, fcn_name_pre, fcn_name_post);
+	char *sig = sig_from_debuginfo(analysis, fcn, fcn_name, fcn_name_pre, fcn_name_post);
 	if (RZ_STR_ISNOTEMPTY(sig)) {
 		return sig;
 	}
