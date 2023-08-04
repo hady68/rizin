@@ -657,18 +657,10 @@ typedef struct rz_analysis_var_access_t {
 struct rz_analysis_var_storage_t;
 
 typedef enum {
-	RZ_ANALYSIS_VAR_STORAGE_INVALID = 0,
-	RZ_ANALYSIS_VAR_STORAGE_EMPTY,
-	RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR,
 	RZ_ANALYSIS_VAR_STORAGE_STACK,
 	RZ_ANALYSIS_VAR_STORAGE_REG,
-	RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET,
-	RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET,
-	RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET,
 	RZ_ANALYSIS_VAR_STORAGE_COMPOSITE,
-	RZ_ANALYSIS_VAR_STORAGE_LOCLIST,
-	RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING,
-	RZ_ANALYSIS_VAR_STORAGE_END
+	RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING,
 } RzAnalysisVarStorageType;
 
 /**
@@ -676,8 +668,6 @@ typedef enum {
  */
 typedef struct rz_analysis_var_storage_t {
 	RzAnalysisVarStorageType type;
-	st64 offset;
-	ut64 DIE_offset;
 	union {
 		/**
 		 * Used iff type == RZ_ANALYSIS_VAR_STORAGE_STACK.
@@ -691,12 +681,6 @@ typedef struct rz_analysis_var_storage_t {
 		 * respective RzAnalysis.constpool.
 		 */
 		const char *reg;
-		RzVector * /*<RzBinDwarfPiece>*/ composite;
-		struct {
-			RzBinDwarfEvaluation *eval;
-			RzBinDwarfEvaluationResult *result;
-		} dwarf_eval_waiting;
-		const RzBinDwarfLocList *loclist;
 	};
 } RzAnalysisVarStorage;
 
@@ -710,46 +694,12 @@ static inline void rz_analysis_var_storage_init_stack(RzAnalysisVarStorage *stor
 	stor->stack_off = stack_off;
 }
 
-static inline void rz_analysis_var_storage_init_reg_offset(RzAnalysisVarStorage *stor, RZ_NONNULL const char *reg, st64 offset) {
-	stor->type = RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET;
-	stor->reg = reg;
-	stor->offset = offset;
-}
-
-static inline void rz_analysis_var_storage_init_cfa_offset(RzAnalysisVarStorage *stor, st64 offset) {
-	stor->type = RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET;
-	stor->offset = offset;
-}
-
-static inline void rz_analysis_var_storage_init_fb_offset(RzAnalysisVarStorage *stor, st64 offset) {
-	stor->type = RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET;
-	stor->offset = offset;
-}
-
-static inline void rz_analysis_var_storage_init_compose(RzAnalysisVarStorage *stor, RzVector /*<RzBinDwarfPiece>*/ *compose) {
-	stor->type = RZ_ANALYSIS_VAR_STORAGE_COMPOSITE;
-	stor->composite = compose;
-}
-
-static inline void rz_analysis_var_storage_init_dwarf_eval_waiting(RzAnalysisVarStorage *stor, RzBinDwarfEvaluation *eval, RzBinDwarfEvaluationResult *result) {
-	stor->type = RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING;
-	stor->dwarf_eval_waiting.eval = eval;
-	stor->dwarf_eval_waiting.result = result;
-}
-
-static inline void rz_analysis_var_storage_init_loclist(RzAnalysisVarStorage *stor, const RzBinDwarfLocList *loclist) {
-	stor->type = RZ_ANALYSIS_VAR_STORAGE_LOCLIST;
-	stor->loclist = loclist;
-}
-
 /**
  * \brief Kind of a variable
  */
 typedef enum rz_analysis_var_kind_t {
-	RZ_ANALYSIS_VAR_KIND_INVALID = 0, ///< Invalid or unspecified variable
 	RZ_ANALYSIS_VAR_KIND_FORMAL_PARAMETER, ///< Variable is function formal parameter
 	RZ_ANALYSIS_VAR_KIND_VARIABLE, ///< Variable is local variable
-	RZ_ANALYSIS_VAR_KIND_UNSPECIFIED_PARAMETERS, ///< Variable is a parameter of a function with unspecified parameters
 } RzAnalysisVarKind;
 
 /**
@@ -767,6 +717,14 @@ typedef struct rz_analysis_var_t {
 
 	// below members are just for caching, TODO: remove them and do it better
 	int argnum;
+
+	struct {
+		enum {
+			RZ_ANALYSIS_VAR_ORIGIN_NONE = 0,
+			RZ_ANALYSIS_VAR_ORIGIN_DWARF,
+		} kind;
+		RzBinDwarfLocation *DWARF_location;
+	} origin;
 } RzAnalysisVar;
 
 /**
@@ -1781,9 +1739,9 @@ RZ_API void rz_analysis_extract_rarg(RzAnalysis *analysis, RzAnalysisOp *op, RzA
 
 RZ_API const char *rz_analysis_var_storage_type_to_string(RzAnalysisVarStorageType type);
 RZ_API bool rz_analysis_var_storage_type_from_string(const char *type_str, RzAnalysisVarStorageType *type);
-RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAnalysisVarStorage *storage);
-RZ_API void rz_analysis_var_storage_dump_pj(PJ *pj, const RzAnalysisVarStorage *storage);
-RZ_API char *rz_analysis_var_storage_to_string(RzAnalysis *a, const RzAnalysisVarStorage *storage);
+RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAnalysisVar *var, const RzAnalysisVarStorage *storage);
+RZ_API void rz_analysis_var_storage_dump_pj(PJ *pj, const RzAnalysisVar *var, const RzAnalysisVarStorage *storage);
+RZ_API char *rz_analysis_var_storage_to_string(RzAnalysis *a, const RzAnalysisVar *var, const RzAnalysisVarStorage *storage);
 
 // Get the variable that var is written to at one of its accesses
 // Useful for cases where a register-based argument is written away into a stack variable,

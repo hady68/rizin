@@ -2539,7 +2539,7 @@ static void var_list_show(RzCore *core,
 			pj_ks(state->d.pj, "type", vartype);
 			free(vartype);
 
-			rz_analysis_var_storage_dump_pj(state->d.pj, &var->storage);
+			rz_analysis_var_storage_dump_pj(state->d.pj, var, &var->storage);
 			pj_end(state->d.pj);
 			break;
 		}
@@ -2580,13 +2580,13 @@ RZ_IPI RzCmdStatus rz_analysis_function_vars_handler(RzCore *core, int argc, con
 	switch (state->mode) {
 	case RZ_OUTPUT_MODE_RIZIN:
 	case RZ_OUTPUT_MODE_STANDARD:
-		for (int i = RZ_ANALYSIS_VAR_STORAGE_EMPTY; i < RZ_ANALYSIS_VAR_STORAGE_END; ++i) {
+		for (int i = 0; i <= RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING; ++i) {
 			core_analysis_var_list_show(core, fcn, i, state);
 		}
 		break;
 	case RZ_OUTPUT_MODE_JSON:
 		pj_o(state->d.pj);
-		for (int i = RZ_ANALYSIS_VAR_STORAGE_EMPTY; i < RZ_ANALYSIS_VAR_STORAGE_END; ++i) {
+		for (int i = 0; i <= RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING; ++i) {
 			RzList *list = rz_analysis_var_list(fcn, i);
 			if (!(list && !rz_list_empty(list))) {
 				continue;
@@ -2870,7 +2870,7 @@ static RzCmdStatus analysis_function_vars_getsetref(RzCore *core, RzAnalysisVarS
 
 	RzAnalysisVar *var = rz_analysis_function_get_var_at(fcn, stor);
 	if (!var) {
-		char *stor_str = rz_analysis_var_storage_to_string(core->analysis, stor);
+		char *stor_str = rz_analysis_var_storage_to_string(core->analysis, var, stor);
 		RZ_LOG_ERROR("core: Cannot find variable with %s\n", stor_str);
 		free(stor_str);
 		return RZ_CMD_STATUS_ERROR;

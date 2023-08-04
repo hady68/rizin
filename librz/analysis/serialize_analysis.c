@@ -432,7 +432,7 @@ RZ_API void rz_serialize_analysis_var_save(RZ_NONNULL PJ *j, RZ_NONNULL RzAnalys
 	pj_ks(j, "type", vartype);
 	free(vartype);
 
-	rz_analysis_var_storage_dump_pj(j, &var->storage);
+	rz_analysis_var_storage_dump_pj(j, var,&var->storage);
 
 	if (var->comment) {
 		pj_ks(j, "cmt", var->comment);
@@ -688,11 +688,8 @@ enum {
 	VAR_STORAGE_FIELD_TYPE,
 	VAR_STORAGE_FIELD_STACK,
 	VAR_STORAGE_FIELD_REG,
-	VAR_STORAGE_FIELD_OFFSET,
-	VAR_STORAGE_FIELD_EMPTY,
 	VAR_STORAGE_FIELD_COMPOSE,
-	VAR_STORAGE_FIELD_LOCLIST,
-	VAR_STORAGE_FIELD_WAITING,
+	VAR_STORAGE_FIELD_EVAL_PENDING,
 };
 
 RZ_API RzSerializeAnalysisVarParser rz_serialize_analysis_var_storage_parser_new(void) {
@@ -703,11 +700,8 @@ RZ_API RzSerializeAnalysisVarParser rz_serialize_analysis_var_storage_parser_new
 	rz_key_parser_add(parser, "type", VAR_STORAGE_FIELD_TYPE);
 	rz_key_parser_add(parser, "stack", VAR_STORAGE_FIELD_STACK);
 	rz_key_parser_add(parser, "reg", VAR_STORAGE_FIELD_REG);
-	rz_key_parser_add(parser, "offset", VAR_STORAGE_FIELD_OFFSET);
-	rz_key_parser_add(parser, "empty", VAR_STORAGE_FIELD_EMPTY);
 	rz_key_parser_add(parser, "compose", VAR_STORAGE_FIELD_COMPOSE);
-	rz_key_parser_add(parser, "loclist", VAR_STORAGE_FIELD_LOCLIST);
-	rz_key_parser_add(parser, "waiting", VAR_STORAGE_FIELD_WAITING);
+	rz_key_parser_add(parser, "pending", VAR_STORAGE_FIELD_EVAL_PENDING);
 	return parser;
 }
 
@@ -738,26 +732,18 @@ RZ_API bool rz_serialize_analysis_var_storage_load(RZ_NONNULL RzAnalysisFunction
 			storage->stack_off = child->num.s_value;
 			break;
 		case VAR_STORAGE_FIELD_REG:
-			if (child->type != RZ_JSON_STRING || !(storage->type == RZ_ANALYSIS_VAR_STORAGE_REG || storage->type == RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET)) {
+			if (child->type != RZ_JSON_STRING || !(storage->type == RZ_ANALYSIS_VAR_STORAGE_REG)) {
 				break;
 			}
 			storage->reg = child->str_value;
 			break;
-		case VAR_STORAGE_FIELD_OFFSET:
-			if (child->type != RZ_JSON_INTEGER) {
-				break;
-			}
-			storage->offset = child->num.s_value;
-			break;
-		case VAR_STORAGE_FIELD_EMPTY:
 		case VAR_STORAGE_FIELD_COMPOSE:
-		case VAR_STORAGE_FIELD_LOCLIST:
-		case VAR_STORAGE_FIELD_WAITING:
+		case VAR_STORAGE_FIELD_EVAL_PENDING:
 		default:
 			RZ_LOG_WARN("Unimplemented field \"%s\" in variable storage\n", child->key);
 			break;
 	});
-	return json->type == RZ_JSON_OBJECT && storage->type != RZ_ANALYSIS_VAR_STORAGE_INVALID;
+	return json->type == RZ_JSON_OBJECT && storage->type <= RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING;
 }
 
 RZ_API void rz_serialize_analysis_global_var_save(RZ_NONNULL Sdb *db, RZ_NONNULL RzAnalysis *anal) {

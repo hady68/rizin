@@ -1308,7 +1308,7 @@ static inline const char *var_name(RzAnalysisDwarfVariable *v, enum DW_LANG lang
 	return prefer_linkage_name(lang) ? (v->link_name ? v->link_name : v->name) : v->name;
 }
 
-static bool function_var_parse(Context *ctx, const RzBinDwarfDie *var_die, const RzBinDwarfDie *fn_die, RzAnalysisDwarfVariable *v) {
+static bool function_var_parse(Context *ctx, RzAnalysisDwarfFunction *f, const RzBinDwarfDie *fn_die, RzAnalysisDwarfVariable *v, const RzBinDwarfDie *var_die, bool *has_unspecified_parameters) {
 	v->offset = var_die->offset;
 	switch (var_die->tag) {
 	case DW_TAG_formal_parameter:
@@ -1318,7 +1318,7 @@ static bool function_var_parse(Context *ctx, const RzBinDwarfDie *var_die, const
 		v->kind = RZ_ANALYSIS_VAR_KIND_VARIABLE;
 		break;
 	case DW_TAG_unspecified_parameters:
-		v->kind = RZ_ANALYSIS_VAR_KIND_UNSPECIFIED_PARAMETERS;
+		*has_unspecified_parameters = f->has_unspecified_parameters = true;
 		return true;
 	default:
 		return false;
@@ -1383,12 +1383,12 @@ static bool function_children_parse(Context *ctx, const RzBinDwarfDie *die, RzCa
 			continue;
 		}
 		RzAnalysisDwarfVariable v = { 0 };
-		if (!function_var_parse(ctx, child_die, die, &v)) {
+		bool has_unspecified_parameters = false;
+		if (!function_var_parse(ctx, fn, die, &v, child_die, &has_unspecified_parameters)) {
 			goto err;
 		}
-		if (v.kind == RZ_ANALYSIS_VAR_KIND_UNSPECIFIED_PARAMETERS) {
+		if (has_unspecified_parameters) {
 			callable->has_unspecified_parameters = true;
-			fn->has_unspecified_parameters = true;
 			goto err;
 		}
 		if (!(v.location && v.type)) {
@@ -1645,10 +1645,11 @@ static RzBinDwarfLocation *location_by_biggest_range(const RzBinDwarfLocList *lo
 	rz_pvector_foreach (&loclist->entries, it) {
 		RzBinDwarfLocationListEntry *entry = *it;
 		ut64 range = entry->range->begin - entry->range->end;
-		if (range > biggest_range &&
+		if (range > biggest_range && entry->location &&
 			(entry->location->kind == RzBinDwarfLocationKind_REGISTER_OFFSET ||
 				entry->location->kind == RzBinDwarfLocationKind_REGISTER ||
-				entry->location->kind == RzBinDwarfLocationKind_CFA_OFFSET)) {
+				entry->location->kind == RzBinDwarfLocationKind_CFA_OFFSET ||
+				entry->location->kind == RzBinDwarfLocationKind_COMPOSITE)) {
 			biggest_range = range;
 			biggest_range_loc = entry->location;
 		}
@@ -1656,62 +1657,37 @@ static RzBinDwarfLocation *location_by_biggest_range(const RzBinDwarfLocList *lo
 	return biggest_range_loc;
 }
 
-static bool dw_var_to_rz_var(RzAnalysis *a, RzAnalysisFunction *f, RzAnalysisDwarfVariable *dw_var, RzAnalysisVar *var) {
-	var->type = dw_var->type;
-	var->name = strdup(dw_var->prefer_name ? dw_var->prefer_name : "");
-	var->kind = dw_var->kind;
-	var->fcn = f;
-
-	RzBinDwarfLocation *loc = dw_var->location;
-	if (!loc) {
-		return false;
-	}
-
-	RzAnalysisVarStorage *storage = &var->storage;
-	storage->DIE_offset = dw_var->offset;
+static bool DWARF_location_to_RzVarStorage(
+	RzAnalysis *a, RzAnalysisFunction *f, RzAnalysisDwarfVariable *DW_var,
+	RzBinDwarfLocation *loc, RzAnalysisVar *var, RzAnalysisVarStorage *storage) {
+	storage->type = RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING;
+	var->origin.DWARF_location = loc;
 	switch (loc->kind) {
-	case RzBinDwarfLocationKind_EMPTY:
-		storage->type = RZ_ANALYSIS_VAR_STORAGE_EMPTY;
-		break;
-	case RzBinDwarfLocationKind_DECODE_ERROR:
-		storage->type = RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR;
-		break;
 	case RzBinDwarfLocationKind_REGISTER: {
-		if (!a->debug_info->dwarf_register_mapping) {
-			return false;
-		}
-		const char *reg_name = a->debug_info->dwarf_register_mapping(loc->register_number);
-		rz_analysis_var_storage_init_reg(storage, reg_name);
+		rz_analysis_var_storage_init_reg(storage, a->debug_info->dwarf_register_mapping(loc->register_number));
 		break;
 	}
 	case RzBinDwarfLocationKind_REGISTER_OFFSET: {
-		if (!a->debug_info->dwarf_register_mapping) {
-			return false;
-		}
 		// Convert some register offset to stack offset
-		const char *reg_name = a->debug_info->dwarf_register_mapping(loc->register_number);
-		if (fixup_regoff_to_stackoff(a, f, dw_var, reg_name, var)) {
+		if (fixup_regoff_to_stackoff(a, f, DW_var, a->debug_info->dwarf_register_mapping(loc->register_number), var)) {
 			break;
 		}
-		rz_analysis_var_storage_init_reg_offset(storage, reg_name, loc->offset);
 		break;
 	}
 	case RzBinDwarfLocationKind_ADDRESS: {
-		rz_analysis_var_global_create(a, dw_var->prefer_name, dw_var->type, loc->address);
+		rz_analysis_var_global_create(a, DW_var->prefer_name, DW_var->type, loc->address);
 		rz_analysis_var_fini(var);
 		return false;
 	}
+	case RzBinDwarfLocationKind_EMPTY:
+	case RzBinDwarfLocationKind_DECODE_ERROR:
 	case RzBinDwarfLocationKind_VALUE:
 	case RzBinDwarfLocationKind_BYTES:
 	case RzBinDwarfLocationKind_IMPLICIT_POINTER:
-		// TODO loc2storage
-		storage->type = RZ_ANALYSIS_VAR_STORAGE_EMPTY;
+	case RzBinDwarfLocationKind_EVALUATION_WAITING:
 		break;
 	case RzBinDwarfLocationKind_COMPOSITE:
-		rz_analysis_var_storage_init_compose(storage, loc->composite);
-		break;
-	case RzBinDwarfLocationKind_EVALUATION_WAITING:
-		rz_analysis_var_storage_init_dwarf_eval_waiting(storage, loc->eval_waiting.eval, loc->eval_waiting.result);
+		storage->type = RZ_ANALYSIS_VAR_STORAGE_COMPOSITE;
 		break;
 	case RzBinDwarfLocationKind_CFA_OFFSET:
 		// TODO: The following is only an educated guess. There is actually more involved in calculating the
@@ -1719,36 +1695,33 @@ static bool dw_var_to_rz_var(RzAnalysis *a, RzAnalysisFunction *f, RzAnalysisDwa
 		rz_analysis_var_storage_init_stack(storage, loc->offset + a->bits / 8);
 		break;
 	case RzBinDwarfLocationKind_FB_OFFSET:
-		rz_analysis_var_storage_init_fb_offset(storage, loc->offset);
+		rz_analysis_var_storage_init_stack(storage, loc->offset);
 		break;
 	case RzBinDwarfLocationKind_LOCLIST: {
 		RzBinDwarfLocation *biggest_range_loc = location_by_biggest_range(loc->loclist);
 		if (!biggest_range_loc) {
-			storage->type = RZ_ANALYSIS_VAR_STORAGE_EMPTY;
 			break;
 		}
-		if (biggest_range_loc->kind == RzBinDwarfLocationKind_REGISTER) {
-			const char *reg_name = a->debug_info->dwarf_register_mapping(biggest_range_loc->register_number);
-			rz_analysis_var_storage_init_reg(storage, reg_name);
+		if (DWARF_location_to_RzVarStorage(a, f, DW_var, biggest_range_loc, var, storage)) {
 			break;
 		}
-		if (biggest_range_loc->kind == RzBinDwarfLocationKind_REGISTER_OFFSET) {
-			if (fixup_regoff_to_stackoff(a, f, dw_var,
-				    a->debug_info->dwarf_register_mapping(biggest_range_loc->register_number), var)) {
-				break;
-			}
-		}
-		if (biggest_range_loc->kind == RzBinDwarfLocationKind_CFA_OFFSET) {
-			// TODO: The following is only an educated guess. There is actually more involved in calculating the
-			//       CFA correctly.
-			rz_analysis_var_storage_init_stack(storage, loc->offset + a->bits / 8);
-			break;
-		}
-		storage->type = RZ_ANALYSIS_VAR_STORAGE_EMPTY;
 		break;
 	}
 	}
 	return true;
+}
+
+static bool DWARF_var_to_RzVar(RzAnalysis *a, RzAnalysisFunction *f, RzAnalysisDwarfVariable *DW_var, RzAnalysisVar *var) {
+	RzBinDwarfLocation *loc = DW_var->location;
+	if (!loc) {
+		return false;
+	}
+	var->type = DW_var->type;
+	var->name = strdup(DW_var->prefer_name ? DW_var->prefer_name : "");
+	var->kind = DW_var->kind;
+	var->fcn = f;
+	var->origin.kind = RZ_ANALYSIS_VAR_ORIGIN_DWARF;
+	return DWARF_location_to_RzVarStorage(a, f, DW_var, loc, var, &var->storage);
 }
 
 static bool dwarf_integrate_function(void *user, const ut64 k, const void *value) {
@@ -1776,14 +1749,14 @@ static bool dwarf_integrate_function(void *user, const ut64 k, const void *value
 	RzAnalysisDwarfVariable *v;
 	rz_vector_foreach(&fn->variables, v) {
 		RzAnalysisVar av = { 0 };
-		if (!dw_var_to_rz_var(analysis, afn, v, &av)) {
+		if (!DWARF_var_to_RzVar(analysis, afn, v, &av)) {
 			continue;
 		}
 		rz_analysis_function_add_var_dwarf(afn, &av, 4);
 	};
 
 	afn->has_debuginfo = true;
-	if (fn->high_pc) {
+	if (fn->high_pc && afn->meta._max < fn->high_pc) {
 		afn->meta._max = fn->high_pc;
 	}
 

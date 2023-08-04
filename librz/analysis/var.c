@@ -29,18 +29,9 @@ RZ_API int rz_analysis_var_storage_cmp(const RzAnalysisVarStorage *a, const RzAn
 		return strcmp(a->reg, b->reg);
 	case RZ_ANALYSIS_VAR_STORAGE_STACK:
 		return a->stack_off - b->stack_off;
-	case RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET: {
-		int cmp_reg = strcmp(a->reg, b->reg);
-		return cmp_reg == 0 ? (int)a->offset - (int)b->offset : cmp_reg;
-	}
-	case RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET:
-		return a->offset - b->offset;
-	case RZ_ANALYSIS_VAR_STORAGE_LOCLIST:
-	case RZ_ANALYSIS_VAR_STORAGE_EMPTY:
 	case RZ_ANALYSIS_VAR_STORAGE_COMPOSITE:
-	case RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING:
-	case RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR:
-		return a->DIE_offset - b->DIE_offset;
+	case RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING:
+		return -1;
 	default:
 		rz_warn_if_reached();
 		return -1;
@@ -60,28 +51,21 @@ RZ_API bool rz_analysis_var_storage_equals(const RzAnalysisVarStorage *a, const 
 }
 
 static const char *var_storage_strings[] = {
-	[RZ_ANALYSIS_VAR_STORAGE_INVALID] = "invalid",
-	[RZ_ANALYSIS_VAR_STORAGE_EMPTY] = "empty",
-	[RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR] = "<decode error>",
 	[RZ_ANALYSIS_VAR_STORAGE_REG] = "reg",
 	[RZ_ANALYSIS_VAR_STORAGE_STACK] = "stack",
-	[RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET] = "reg offset",
-	[RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET] = "CFA",
-	[RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET] = "frame base",
 	[RZ_ANALYSIS_VAR_STORAGE_COMPOSITE] = "composite",
-	[RZ_ANALYSIS_VAR_STORAGE_LOCLIST] = "loclist",
-	[RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING] = "waiting",
+	[RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING] = "pending",
 };
 
 RZ_API const char *rz_analysis_var_storage_type_to_string(RzAnalysisVarStorageType type) {
-	if (type >= RZ_ANALYSIS_VAR_STORAGE_END) {
+	if (type >= RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING) {
 		return NULL;
 	}
 	return var_storage_strings[type];
 }
 
 RZ_API bool rz_analysis_var_storage_type_from_string(const char *type_str, RzAnalysisVarStorageType *type) {
-	for (int i = 1; i < RZ_ANALYSIS_VAR_STORAGE_END; ++i) {
+	for (int i = 0; i <= RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING; ++i) {
 		if (rz_str_cmp(type_str, var_storage_strings[i], -1) == 0) {
 			*type = i;
 			return true;
@@ -95,7 +79,7 @@ static void strbuf_append_sign_hex(RzStrBuf *sb, st64 x) {
 	rz_strbuf_appendf(sb, " %c 0x%" PFMT64x, sign, RZ_ABS(x));
 }
 
-RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAnalysisVarStorage *storage) {
+RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAnalysisVar *var, const RzAnalysisVarStorage *storage) {
 	switch (storage->type) {
 	case RZ_ANALYSIS_VAR_STORAGE_REG: {
 		rz_strbuf_append(sb, storage->reg);
@@ -106,46 +90,31 @@ RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAn
 		strbuf_append_sign_hex(sb, storage->stack_off);
 		break;
 	}
-	case RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET:
-		rz_strbuf_append(sb, storage->reg);
-		strbuf_append_sign_hex(sb, storage->offset);
-		break;
-	case RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET:
-	case RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET:
-		rz_strbuf_append(sb, var_storage_strings[storage->type]);
-		strbuf_append_sign_hex(sb, storage->offset);
-		break;
-	case RZ_ANALYSIS_VAR_STORAGE_LOCLIST: {
-		rz_bin_dwarf_loclist_dump(&a->debug_info->dw->encoding, a->debug_info->dwarf_register_mapping, storage->loclist, sb, "\n", "\t");
-		break;
-	}
 	case RZ_ANALYSIS_VAR_STORAGE_COMPOSITE: {
-		rz_bin_dwarf_location_composite_dump(&a->debug_info->dw->encoding, a->debug_info->dwarf_register_mapping, storage->composite, sb, ", ", "");
+		if (var->origin.kind == RZ_ANALYSIS_VAR_ORIGIN_DWARF && var->origin.DWARF_location && var->origin.DWARF_location->kind == RzBinDwarfLocationKind_COMPOSITE) {
+			rz_bin_dwarf_location_composite_dump(&a->debug_info->dw->encoding, a->debug_info->dwarf_register_mapping, var->origin.DWARF_location->composite, sb, ", ", "");
+		} else {
+			rz_warn_if_reached();
+		}
 		break;
 	}
-	case RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING:
-	case RZ_ANALYSIS_VAR_STORAGE_EMPTY:
+	case RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING:
 		/// Omit storage information
 		rz_strbuf_append(sb, "...");
 		break;
-	case RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR:
-		rz_strbuf_append(sb, "<decoding error>");
-		break;
-	case RZ_ANALYSIS_VAR_STORAGE_INVALID:
-	case RZ_ANALYSIS_VAR_STORAGE_END:
 	default:
 		rz_warn_if_reached();
 		break;
 	}
 }
 
-RZ_API char *rz_analysis_var_storage_to_string(RzAnalysis *a, const RzAnalysisVarStorage *storage) {
+RZ_API char *rz_analysis_var_storage_to_string(RzAnalysis *a, const RzAnalysisVar *var, const RzAnalysisVarStorage *storage) {
 	RzStrBuf *sb = rz_strbuf_new(NULL);
-	rz_analysis_var_storage_dump(a, sb, storage);
+	rz_analysis_var_storage_dump(a, sb, var, storage);
 	return rz_strbuf_drain(sb);
 }
 
-RZ_API void rz_analysis_var_storage_dump_pj(PJ *pj, const RzAnalysisVarStorage *storage) {
+RZ_API void rz_analysis_var_storage_dump_pj(PJ *pj, const RzAnalysisVar *var, const RzAnalysisVarStorage *storage) {
 	rz_return_if_fail(pj && storage);
 	const char *type = rz_analysis_var_storage_type_to_string(storage->type);
 	pj_k(pj, "storage");
@@ -160,25 +129,15 @@ RZ_API void rz_analysis_var_storage_dump_pj(PJ *pj, const RzAnalysisVarStorage *
 		case RZ_ANALYSIS_VAR_STORAGE_REG:
 			pj_s(pj, storage->reg);
 			break;
-		case RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET:
-			pj_o(pj);
-			pj_ks(pj, "reg", storage->reg);
-			pj_kN(pj, "offset", storage->offset);
-			pj_end(pj);
-			break;
-		case RZ_ANALYSIS_VAR_STORAGE_FB_OFFSET:
-		case RZ_ANALYSIS_VAR_STORAGE_CFA_OFFSET:
-			pj_N(pj, storage->offset);
-			break;
-		case RZ_ANALYSIS_VAR_STORAGE_EMPTY:
 		case RZ_ANALYSIS_VAR_STORAGE_COMPOSITE:
-		case RZ_ANALYSIS_VAR_STORAGE_LOCLIST:
-		case RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING:
-		case RZ_ANALYSIS_VAR_STORAGE_DECODE_ERROR:
-			pj_kn(pj, var_storage_strings[storage->type], storage->DIE_offset);
+		case RZ_ANALYSIS_VAR_STORAGE_EVAL_PENDING:
+			if (var->origin.kind == RZ_ANALYSIS_VAR_ORIGIN_DWARF) {
+				pj_kn(pj, var_storage_strings[storage->type], var->origin.DWARF_location->offset);
+			} else {
+				rz_warn_if_reached();
+			}
 			break;
-		case RZ_ANALYSIS_VAR_STORAGE_INVALID:
-		case RZ_ANALYSIS_VAR_STORAGE_END:
+		default:
 			rz_warn_if_reached();
 			break;
 		}
@@ -190,7 +149,7 @@ RZ_API void rz_analysis_var_storage_dump_pj(PJ *pj, const RzAnalysisVarStorage *
  * Ensure that the register name in \p stor comes from the const pool
  */
 static void storage_poolify(RzAnalysis *analysis, RzAnalysisVarStorage *stor) {
-	if (stor->type == RZ_ANALYSIS_VAR_STORAGE_REG || stor->type == RZ_ANALYSIS_VAR_STORAGE_REG_OFFSET) {
+	if (stor->type == RZ_ANALYSIS_VAR_STORAGE_REG) {
 		stor->reg = rz_str_constpool_get(&analysis->constpool, stor->reg);
 	}
 }
@@ -329,8 +288,7 @@ RZ_API RZ_BORROW RzAnalysisVar *rz_analysis_function_set_var(RzAnalysisFunction 
  * \param size \p var's type size
  * \return the created or updated variable, or NULL if the operation could not be completed
  */
-RZ_IPI RZ_BORROW RzAnalysisVar *rz_analysis_function_add_var_dwarf(RzAnalysisFunction *fcn, RZ_OWN RzAnalysisVar *var,
-	int size) {
+RZ_IPI RZ_BORROW RzAnalysisVar *rz_analysis_function_add_var_dwarf(RzAnalysisFunction *fcn, RZ_OWN RzAnalysisVar *var, int size) {
 	rz_return_val_if_fail(fcn && var && var->name, NULL);
 	RzAnalysisVar *old = NULL;
 	void **it;
@@ -338,32 +296,24 @@ RZ_IPI RZ_BORROW RzAnalysisVar *rz_analysis_function_add_var_dwarf(RzAnalysisFun
 		RzAnalysisVar *p = *it;
 		if (!strcmp(p->name, var->name) || rz_analysis_var_storage_equals(&p->storage, &var->storage)) {
 			old = p;
+			break;
 		}
 	}
 	if (old) {
-		if (old->kind != RZ_ANALYSIS_VAR_KIND_INVALID) {
+		if (old->origin.kind == RZ_ANALYSIS_VAR_ORIGIN_DWARF) {
 			return NULL;
 		}
 		rz_analysis_var_delete(old);
 	}
 
-	RzAnalysisVar *out = rz_analysis_var_new();
-	out->fcn = fcn;
+	RzAnalysisVar *out = RZ_NEWCOPY(RzAnalysisVar, var);
 	rz_pvector_push(&fcn->vars, out);
-
-	out->name = var->name;
-	out->storage = var->storage;
-	out->kind = var->kind;
 	storage_poolify(fcn->analysis, &out->storage);
+
 	if (var->type) {
-		if (out->type != var->type) {
-			rz_type_free(out->type);
-			out->type = rz_type_clone(var->type);
-		}
+		out->type = rz_type_clone(var->type);
 	} else {
-		if (!out->type) {
-			out->type = var_type_default(fcn->analysis, size);
-		}
+		out->type = var_type_default(fcn->analysis, size);
 	}
 	rz_analysis_var_resolve_overlaps(out);
 	return out;
@@ -948,20 +898,10 @@ RZ_API bool rz_analysis_var_is_arg(RZ_NONNULL RzAnalysisVar *var) {
 	rz_return_val_if_fail(var, false);
 	switch (var->kind) {
 	case RZ_ANALYSIS_VAR_KIND_FORMAL_PARAMETER:
-	case RZ_ANALYSIS_VAR_KIND_UNSPECIFIED_PARAMETERS:
 		return true;
 	case RZ_ANALYSIS_VAR_KIND_VARIABLE:
 		return false;
-	case RZ_ANALYSIS_VAR_KIND_INVALID: {
-		/**
-		 * If we already have some function arguments from debug information,
-		 * then we don't consider the function arguments of the call convention anymore
-		 */
-		if (var->fcn->has_debuginfo) {
-			return false;
-		}
-		break;
-	}
+	default: break;
 	}
 
 	switch (var->storage.type) {
