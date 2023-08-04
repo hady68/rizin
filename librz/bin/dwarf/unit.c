@@ -86,6 +86,11 @@ static bool RzBinDwarfDie_attrs_parse(RzBuffer *buffer, RzBinDwarfDie *die, RzBi
 	return true;
 }
 
+/**
+ * \brief Initializes a RzBinDwarfCompUnit
+ * \param unit The RzBinDwarfCompUnit to initialize
+ * \return 0 on success, -EINVAL on error
+ */
 static int RzBinDwarfCompUnit_init(RzBinDwarfCompUnit *unit) {
 	if (!unit) {
 		return -EINVAL;

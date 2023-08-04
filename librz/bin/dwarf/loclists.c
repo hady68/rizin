@@ -131,9 +131,10 @@ static bool RawLocListEntry_parse(
 	return true;
 }
 
-static bool RzBinDwarfLocListTable_convert_raw(RzBinDwarfLocListTable *self,
+static bool RzBinDwarfLocListTable_convert_raw(
+	RzBinDwarfLocListTable *self,
 	RzBinDwarfRawLocListEntry *raw,
-	RzBinDwarfLocationListEntry **out) {
+	RZ_OUT RzBinDwarfLocationListEntry **out) {
 	ut64 mask = self->encoding.address_size == 0 ? ~0ULL
 						     : (~0ULL >> (64 - self->encoding.address_size * 8));
 	ut64 tombstone = self->encoding.version <= 4 ? mask - 1

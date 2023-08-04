@@ -89,23 +89,28 @@ RZ_IPI bool RzBinDwarfRawRngListEntry_parse(RzBinDwarfRawRngListEntry *out, RzBu
 			return false;
 		}
 		}
+		break;
+	}
+	default: {
+		RZ_LOG_DEBUG("Invalid address range list format: %u\n", format);
+		return false;
 	}
 	}
 	memcpy(out, &entry, sizeof(entry));
 	return true;
 }
 
-void RzBinDwarfRawRngListEntry_free(RzBinDwarfRawRngListEntry *self) {
+static void RzBinDwarfRawRngListEntry_free(RzBinDwarfRawRngListEntry *self) {
 	free(self);
 }
 
-void RzBinDwarfRngList_free(RzBinDwarfRngList *self) {
+static void RzBinDwarfRngList_free(RzBinDwarfRngList *self) {
 	rz_pvector_fini(&self->raw_entries);
 	rz_pvector_fini(&self->entries);
 	free(self);
 }
 
-void HTUP_RzBinDwarfRngList_free(HtUPKv *kv) {
+static void HTUP_RzBinDwarfRngList_free(HtUPKv *kv) {
 	RzBinDwarfRngList_free(kv->value);
 }
 
@@ -119,7 +124,7 @@ RZ_IPI void RzBinDwarfRngListTable_free(RzBinDwarfRngListTable *self) {
 	free(self);
 }
 
-bool RzBinDwarfRngListTable_convert_raw(RzBinDwarfRngListTable *self, RzBinDwarfRawRngListEntry *raw, RzBinDwarfRange **out) {
+static bool RzBinDwarfRngListTable_convert_raw(RzBinDwarfRngListTable *self, RzBinDwarfRawRngListEntry *raw, RzBinDwarfRange **out) {
 	ut64 mask = self->encoding.address_size == 0 ? ~0ULL : (~0ULL >> (64 - self->encoding.address_size * 8));
 	ut64 tombstone = self->encoding.version <= 4 ? mask - 1
 						     : mask;
@@ -199,7 +204,7 @@ bool RzBinDwarfRngListTable_convert_raw(RzBinDwarfRngListTable *self, RzBinDwarf
 	return true;
 }
 
-static inline bool RzBinDwarfRngListTable_parse(RzBinDwarfRngListTable *self, RzBuffer *buffer, RzBinDwarfEncoding *encoding, RzBinDwarfRngListsFormat format) {
+static bool RzBinDwarfRngListTable_parse(RzBinDwarfRngListTable *self, RzBuffer *buffer, RzBinDwarfEncoding *encoding, RzBinDwarfRngListsFormat format) {
 	RzBinDwarfRngList *rnglist = RZ_NEW0(RzBinDwarfRngList);
 	rnglist->offset = rz_buf_tell(buffer);
 	rz_pvector_init(&rnglist->raw_entries, (RzPVectorFree)RzBinDwarfRawRngListEntry_free);

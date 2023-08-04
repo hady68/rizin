@@ -5,7 +5,7 @@
 #include "dwarf_private.h"
 
 RZ_IPI bool ListsHeader_parse(RzBinDwarfListsHeader *hdr, RzBuffer *buffer, bool big_endian) {
-	memset(hdr, 0, sizeof(RzBinDwarfListsHeader));
+	rz_mem_memzero(hdr, sizeof(RzBinDwarfListsHeader));
 	bool is_64bit = false;
 	ut64 length = 0;
 	RET_FALSE_IF_FAIL(buf_read_initial_length(buffer, &is_64bit, &length, big_endian));
@@ -18,6 +18,7 @@ RZ_IPI bool ListsHeader_parse(RzBinDwarfListsHeader *hdr, RzBuffer *buffer, bool
 	U8_OR_RET_FALSE(hdr->segment_selector_size);
 	if (hdr->segment_selector_size != 0) {
 		RZ_LOG_ERROR("Segment selector size not supported: %d", hdr->segment_selector_size);
+		return false;
 	}
 	U_OR_RET_FALSE(32, hdr->offset_entry_count);
 

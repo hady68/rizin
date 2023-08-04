@@ -193,7 +193,11 @@ static bool RzBinDwarfLineHeader_parse_v4(RzBuffer *buffer, RzBinDwarfLineHeader
 }
 
 /**
+ * \brief Get the full path from a file index, it will join the directory find in \p info with the filename
  * \param info if not NULL, filenames can get resolved to absolute paths using the compilation unit dirs from it
+ * \param hdr the line header
+ * \param file_index the index of the file
+ * \return the full path or NULL if the file index is invalid
  */
 RZ_IPI char *RzBinDwarfLineHeader_full_file_path(
 	RZ_NULLABLE const RzBinDwarfDebugInfo *info,
@@ -478,36 +482,36 @@ RZ_IPI void RzBinDwarfSMRegisters_reset(
 }
 
 static void store_line_sample(
-	RzBinSourceLineInfoBuilder *bob,
+	RzBinSourceLineInfoBuilder *source_line_info_builder,
 	const RzBinDwarfLineHeader *hdr,
 	RzBinDwarfSMRegisters *regs,
 	RZ_NULLABLE RzBinDwarfDebugInfo *info,
-	RZ_NULLABLE RzBinDwarfLineFileCache *fnc) {
+	RZ_NULLABLE RzBinDwarfLineFileCache *line_file_cache) {
 	const char *file = NULL;
 	if (regs->file) {
-		file = get_full_file_path(info, hdr, fnc, regs->file - 1);
+		file = get_full_file_path(info, hdr, line_file_cache, regs->file - 1);
 	}
-	rz_bin_source_line_info_builder_push_sample(bob, regs->address, (ut32)regs->line, (ut32)regs->column, file);
+	rz_bin_source_line_info_builder_push_sample(source_line_info_builder, regs->address, (ut32)regs->line, (ut32)regs->column, file);
 }
 
 /**
- * \brief Execute a single line op on regs and optionally store the resulting line info in bob
- * \param fnc if not null, filenames will be resolved to their full paths using this cache.
+ * \brief Execute a single line op on regs and optionally store the resulting line info in source_line_info_builder
+ * \param line_file_cache if not null, filenames will be resolved to their full paths using this cache.
  */
 RZ_IPI bool RzBinDwarfLineOp_run(
 	const RzBinDwarfLineHeader *hdr,
 	RzBinDwarfSMRegisters *regs,
 	RzBinDwarfLineOp *op,
-	RZ_NULLABLE RzBinSourceLineInfoBuilder *bob,
+	RZ_NULLABLE RzBinSourceLineInfoBuilder *source_line_info_builder,
 	RZ_NULLABLE RzBinDwarfDebugInfo *info,
-	RZ_NULLABLE RzBinDwarfLineFileCache *fnc) {
+	RZ_NULLABLE RzBinDwarfLineFileCache *line_file_cache) {
 	rz_return_val_if_fail(hdr && regs && op, false);
 	switch (op->type) {
 	case RZ_BIN_DWARF_LINE_OP_TYPE_STD:
 		switch (op->opcode) {
 		case DW_LNS_copy:
-			if (bob) {
-				store_line_sample(bob, hdr, regs, info, fnc);
+			if (source_line_info_builder) {
+				store_line_sample(source_line_info_builder, hdr, regs, info, line_file_cache);
 			}
 			regs->basic_block = DWARF_FALSE;
 			break;
@@ -552,9 +556,9 @@ RZ_IPI bool RzBinDwarfLineOp_run(
 		switch (op->ext_opcode) {
 		case DW_LNE_end_sequence:
 			regs->end_sequence = DWARF_TRUE;
-			if (bob) {
+			if (source_line_info_builder) {
 				// closing entry
-				rz_bin_source_line_info_builder_push_sample(bob, regs->address, 0, 0, NULL);
+				rz_bin_source_line_info_builder_push_sample(source_line_info_builder, regs->address, 0, 0, NULL);
 			}
 			RzBinDwarfSMRegisters_reset(hdr, regs);
 			break;
@@ -573,8 +577,8 @@ RZ_IPI bool RzBinDwarfLineOp_run(
 	case RZ_BIN_DWARF_LINE_OP_TYPE_SPEC:
 		regs->address += RzBinDwarfLineHeader_spec_op_advance_pc(hdr, op->opcode);
 		regs->line += RzBinDwarfLineHeader_spec_op_advance_line(hdr, op->opcode);
-		if (bob) {
-			store_line_sample(bob, hdr, regs, info, fnc);
+		if (source_line_info_builder) {
+			store_line_sample(source_line_info_builder, hdr, regs, info, line_file_cache);
 		}
 		regs->basic_block = DWARF_FALSE;
 		regs->prologue_end = DWARF_FALSE;
@@ -612,9 +616,9 @@ static bool RzBinDwarfLineOp_parse_all(
 	const RzBinDwarfLineHeader *hdr,
 	RzVector /*<RzBinDwarfLineOp>*/ *ops_out,
 	RzBinDwarfSMRegisters *regs,
-	RZ_NULLABLE RzBinSourceLineInfoBuilder *bob,
+	RZ_NULLABLE RzBinSourceLineInfoBuilder *source_line_info_builder,
 	RZ_NULLABLE RzBinDwarfDebugInfo *info,
-	RZ_NULLABLE RzBinDwarfLineFileCache *fnc,
+	RZ_NULLABLE RzBinDwarfLineFileCache *line_file_cache,
 	bool big_endian) {
 	while (true) {
 		RzBinDwarfLineOp op = { .offset = rz_buf_tell(buffer), 0 };
@@ -632,8 +636,8 @@ static bool RzBinDwarfLineOp_parse_all(
 		} else {
 			RET_FALSE_IF_FAIL(RzBinDwarfLineOp_parse_std(buffer, &op, hdr, opcode, big_endian));
 		}
-		if (bob) {
-			RET_FALSE_IF_FAIL(RzBinDwarfLineOp_run(hdr, regs, &op, bob, info, fnc));
+		if (source_line_info_builder) {
+			RET_FALSE_IF_FAIL(RzBinDwarfLineOp_run(hdr, regs, &op, source_line_info_builder, info, line_file_cache));
 		}
 
 		char *str = RzBinDwarfLineOp_to_string(&op, op.offset);
@@ -677,9 +681,9 @@ static RzBinDwarfLineInfo *RzBinDwarfLineInfo_parse(
 		return NULL;
 	}
 
-	RzBinSourceLineInfoBuilder bob;
+	RzBinSourceLineInfoBuilder source_line_info_builder;
 	if (mask & RZ_BIN_DWARF_LINE_INFO_MASK_LINES) {
-		rz_bin_source_line_info_builder_init(&bob);
+		rz_bin_source_line_info_builder_init(&source_line_info_builder);
 	}
 
 	// each iteration we read one header AKA comp. unit
@@ -698,9 +702,9 @@ static RzBinDwarfLineInfo *RzBinDwarfLineInfo_parse(
 			rz_vector_init(&unit->ops, sizeof(RzBinDwarfLineOp), NULL, NULL);
 		}
 
-		RzBinDwarfLineFileCache *fnc = NULL;
+		RzBinDwarfLineFileCache *line_file_cache = NULL;
 		if (mask & RZ_BIN_DWARF_LINE_INFO_MASK_LINES) {
-			fnc = rz_pvector_new_with_len(free, rz_vector_len(&unit->header.file_names));
+			line_file_cache = rz_pvector_new_with_len(free, rz_vector_len(&unit->header.file_names));
 		}
 
 		RzBinDwarfSMRegisters regs;
@@ -713,17 +717,17 @@ static RzBinDwarfLineInfo *RzBinDwarfLineInfo_parse(
 			// reads one whole sequence
 			if (!RzBinDwarfLineOp_parse_all(buffer, &unit->header,
 				    (mask & RZ_BIN_DWARF_LINE_INFO_MASK_OPS) ? &unit->ops : NULL, &regs,
-				    (mask & RZ_BIN_DWARF_LINE_INFO_MASK_LINES) ? &bob : NULL,
-				    info, fnc, big_endian)) {
+				    (mask & RZ_BIN_DWARF_LINE_INFO_MASK_LINES) ? &source_line_info_builder : NULL,
+				    info, line_file_cache, big_endian)) {
 				break;
 			}
 		} while (true); // if nothing is read -> error, exit
 
-		rz_pvector_free(fnc);
+		rz_pvector_free(line_file_cache);
 		rz_list_push(li->units, unit);
 	}
 	if (mask & RZ_BIN_DWARF_LINE_INFO_MASK_LINES) {
-		li->lines = rz_bin_source_line_info_builder_build_and_fini(&bob);
+		li->lines = rz_bin_source_line_info_builder_build_and_fini(&source_line_info_builder);
 	}
 	return li;
 }

@@ -59,18 +59,18 @@ static bool RzBinDwarfARangeSet_list_parse(RzBuffer *buffer, bool big_endian, Rz
 		set->aranges = RZ_NEWS0(RzBinDwarfARange, set->aranges_count);
 		GOTO_IF_FAIL(set->aranges, err);
 
-		size_t i = 0;
-		for (; i < set->aranges_count; i++) {
-			RzBinDwarfARange *range = set->aranges + i;
+		size_t count = 0;
+		for (; count < set->aranges_count; count++) {
+			RzBinDwarfARange *range = set->aranges + count;
 			UX_OR_GOTO(set->address_size, range->addr, err);
 			UX_OR_GOTO(set->address_size, range->length, err);
 			if (!range->addr && !range->length) {
 				// last entry has two 0s
-				i++; // so i will be the total count of read entries
+				count++;
 				break;
 			}
 		}
-		set->aranges_count = i;
+		set->aranges_count = count;
 		rz_buf_seek(buffer, (st64)next_set_off, RZ_BUF_SET);
 		rz_list_push(aranges, set);
 		continue;

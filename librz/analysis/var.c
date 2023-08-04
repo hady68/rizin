@@ -116,11 +116,11 @@ RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAn
 		strbuf_append_sign_hex(sb, storage->offset);
 		break;
 	case RZ_ANALYSIS_VAR_STORAGE_LOCLIST: {
-		rz_bin_dwarf_loclist_dump(&a->debug_info->encoding, a->debug_info->dwarf_register_mapping, storage->loclist, sb, "\n", "\t");
+		rz_bin_dwarf_loclist_dump(&a->debug_info->dw->encoding, a->debug_info->dwarf_register_mapping, storage->loclist, sb, "\n", "\t");
 		break;
 	}
 	case RZ_ANALYSIS_VAR_STORAGE_COMPOSITE: {
-		rz_bin_dwarf_location_composite_dump(&a->debug_info->encoding, a->debug_info->dwarf_register_mapping, storage->composite, sb, ", ", "");
+		rz_bin_dwarf_location_composite_dump(&a->debug_info->dw->encoding, a->debug_info->dwarf_register_mapping, storage->composite, sb, ", ", "");
 		break;
 	}
 	case RZ_ANALYSIS_VAR_STORAGE_DWARF_EVAL_WAITING:
@@ -133,6 +133,7 @@ RZ_API void rz_analysis_var_storage_dump(RzAnalysis *a, RzStrBuf *sb, const RzAn
 		break;
 	case RZ_ANALYSIS_VAR_STORAGE_INVALID:
 	case RZ_ANALYSIS_VAR_STORAGE_END:
+	default:
 		rz_warn_if_reached();
 		break;
 	}

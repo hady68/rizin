@@ -32,6 +32,8 @@ static bool RzBinDwarfLocation_move(RzBinDwarfLocation *self, RzBinDwarfLocation
 	case RzBinDwarfLocationKind_LOCLIST:
 		self->loclist = NULL;
 		break;
+	default:
+		return false;
 	}
 	return true;
 }
@@ -43,7 +45,7 @@ static void OperationEvaluationResult_fini(OperationEvaluationResult *self) {
 
 RZ_IPI bool Operation_parse(Operation *self, RzBuffer *buffer, const RzBinDwarfEncoding *encoding) {
 	rz_return_val_if_fail(self && buffer && encoding, false);
-	memset(self, 0, sizeof(Operation));
+	rz_mem_memzero(self, sizeof(Operation));
 	U8_OR_RET_FALSE(self->opcode);
 	bool big_endian = encoding->big_endian;
 	switch (self->opcode) {
@@ -505,6 +507,7 @@ RZ_IPI bool Operation_parse(Operation *self, RzBuffer *buffer, const RzBinDwarfE
 		break;
 	}
 	case DW_OP_hi_user:
+	default:
 		RZ_LOG_WARN("Unsupported opcode %s\n", rz_bin_dwarf_op(self->opcode));
 		return false;
 	}
@@ -1480,6 +1483,9 @@ static void Operation_dump(Operation *op, RzStrBuf *buf) {
 		break;
 	case OPERATION_KIND_WASM_STACK:
 		rz_strbuf_appendf(buf, " 0x%" PFMT32x, op->wasm_stack.index);
+		break;
+	default:
+		rz_strbuf_appendf(buf, " unknown");
 		break;
 	}
 }

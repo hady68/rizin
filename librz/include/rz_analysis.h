@@ -447,14 +447,13 @@ typedef struct rz_analysis_hint_cb_t {
 typedef struct rz_analysis_il_vm_t RzAnalysisILVM;
 
 typedef struct {
-	HtUP /*<ut64, RzAnalysisDwarfFunction *>*/ *function_by_offset;
-	HtUP /*<ut64, const RzAnalysisDwarfFunction *>*/ *function_by_addr;
-	HtUP /*<ut64, RzCallable *>*/ *callable_by_offset;
-	HtUP /*<ut64, RzType *>*/ *type_by_offset;
-	HtUP /*<ut64, const RzBaseType *>*/ *base_type_by_offset;
-	RzBinDwarfEncoding encoding;
-	DWARF_RegisterMapping dwarf_register_mapping;
-	RzBinDwarf *dw;
+	HtUP /*<ut64, RzAnalysisDwarfFunction *>*/ *function_by_offset; ///< Store all functions parsed from DWARF by DIE offset
+	HtUP /*<ut64, const RzAnalysisDwarfFunction *>*/ *function_by_addr; ///< Store all functions parsed from DWARF by address (some functions may have the same address)
+	HtUP /*<ut64, RzCallable *>*/ *callable_by_offset; ///< Store all callables parsed from DWARF by DIE offset
+	HtUP /*<ut64, RzType *>*/ *type_by_offset; ///< Store all RzType parsed from DWARF by DIE offset
+	HtUP /*<ut64, const RzBaseType *>*/ *base_type_by_offset; ///< Store all RzBaseType parsed from DWARF by DIE offset
+	DWARF_RegisterMapping dwarf_register_mapping; ///< Store the mapping function between DWARF registers number and register name in current architecture
+	RzBinDwarf *dw; ///< Holds ownership of RzBinDwarf, avoid releasing it prematurely
 } RzAnalysisDebugInfo;
 
 typedef struct rz_analysis_t {
@@ -789,13 +788,13 @@ typedef struct rz_analysis_var_global_t {
 } RzAnalysisVarGlobal;
 
 typedef struct dwarf_variable_t {
-	ut64 offset;
-	RzBinDwarfLocation *location;
-	char *name;
-	char *link_name;
-	const char *prefer_name;
-	RzType *type;
-	RzAnalysisVarKind kind;
+	ut64 offset; ///< DIE offset of the variable
+	RzBinDwarfLocation *location; ///< location description
+	char *name; ///< name of the variable
+	char *link_name; ///< link name of the variable
+	const char *prefer_name; ///< prefer name of the variable, reference to name or link_name depends on language
+	RzType *type; ///< type of the variable
+	RzAnalysisVarKind kind; ///< kind of the variable
 } RzAnalysisDwarfVariable;
 
 typedef struct dwarf_function_t {

@@ -69,7 +69,7 @@ RZ_IPI void RzBinDwarfRngListTable_free(RzBinDwarfRngListTable *self);
 
 /// value
 
-RZ_IPI bool ValueType_from_encoding(enum DW_ATE encoding, ut64 byte_size, RzBinDwarfValueType *out);
+RZ_IPI bool ValueType_from_encoding(enum DW_ATE encoding, ut64 byte_size, RzBinDwarfValueType *out_type);
 RZ_IPI bool ValueType_from_entry(RzBinDwarfDie *entry, RzBinDwarfValueType *out);
 RZ_IPI RzBinDwarfValue *Value_parse(RzBinDwarfValueType value_type, RzBuffer *buffer, bool big_endian);
 RZ_IPI RzBinDwarfValueType Value_type(RzBinDwarfValue *ptr);

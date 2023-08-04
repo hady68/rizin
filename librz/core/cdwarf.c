@@ -209,7 +209,7 @@ typedef struct {
 	RzStrBuf *sb;
 } DumpContex;
 
-bool htup_loclists_cb(void *u, ut64 k, const void *v) {
+static bool htup_loclists_cb(void *u, ut64 k, const void *v) {
 	const RzBinDwarfLocList *loclist = v;
 	DumpContex *ctx = u;
 	if (!(loclist && ctx && ctx->sb && ctx->dw)) {
@@ -406,7 +406,7 @@ RZ_API char *rz_core_bin_dwarf_line_units_to_string(RzList /*<RzBinDwarfLineUnit
 	return my_print_get;
 }
 
-bool htup_rnglists_cb(void *u, ut64 k, const void *v) {
+static bool htup_rnglists_cb(void *u, ut64 k, const void *v) {
 	const RzBinDwarfRngList *rnglist = v;
 	RzStrBuf *sb = u;
 	if (!(rnglist && sb)) {

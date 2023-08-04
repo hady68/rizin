@@ -50,7 +50,7 @@ static inline uint32_t mask_bit_size(ut64 addr_mask) {
 	return 64 - leading_zeros(addr_mask);
 }
 
-uint32_t bit_size(RzBinDwarfValueType type, ut64 addr_mask) {
+static uint32_t bit_size(RzBinDwarfValueType type, ut64 addr_mask) {
 	switch (type) {
 	case RzBinDwarfValueType_GENERIC:
 		return mask_bit_size(addr_mask);
@@ -73,7 +73,7 @@ uint32_t bit_size(RzBinDwarfValueType type, ut64 addr_mask) {
 	}
 }
 
-RZ_IPI bool ValueType_from_encoding(enum DW_ATE encoding, ut64 byte_size, RzBinDwarfValueType *out) {
+RZ_IPI bool ValueType_from_encoding(enum DW_ATE encoding, ut64 byte_size, RzBinDwarfValueType *out_type) {
 	RzBinDwarfValueType value_type = -1;
 	switch (encoding) {
 	case DW_ATE_signed:
@@ -82,6 +82,7 @@ RZ_IPI bool ValueType_from_encoding(enum DW_ATE encoding, ut64 byte_size, RzBinD
 		case 2: value_type = RzBinDwarfValueType_I16; break;
 		case 4: value_type = RzBinDwarfValueType_I32; break;
 		case 8: value_type = RzBinDwarfValueType_I64; break;
+		default: rz_warn_if_reached();
 		}
 		break;
 	case DW_ATE_unsigned:
@@ -90,34 +91,39 @@ RZ_IPI bool ValueType_from_encoding(enum DW_ATE encoding, ut64 byte_size, RzBinD
 		case 2: value_type = RzBinDwarfValueType_U16; break;
 		case 4: value_type = RzBinDwarfValueType_U32; break;
 		case 8: value_type = RzBinDwarfValueType_U64; break;
+		default: rz_warn_if_reached();
 		}
 		break;
 	case DW_ATE_float:
 		switch (byte_size) {
 		case 4: value_type = RzBinDwarfValueType_F32; break;
 		case 8: value_type = RzBinDwarfValueType_F64; break;
+		default: rz_warn_if_reached();
 		}
 		break;
-	case DW_ATE_address: break;
-	case DW_ATE_boolean: break;
-	case DW_ATE_complex_float: break;
-	case DW_ATE_signed_char: break;
-	case DW_ATE_unsigned_char: break;
-	case DW_ATE_imaginary_float: break;
-	case DW_ATE_packed_decimal: break;
-	case DW_ATE_numeric_string: break;
-	case DW_ATE_edited: break;
-	case DW_ATE_signed_fixed: break;
-	case DW_ATE_unsigned_fixed: break;
-	case DW_ATE_decimal_float: break;
-	case DW_ATE_UTF: break;
-	case DW_ATE_lo_user: break;
-	case DW_ATE_hi_user: break;
+	case DW_ATE_address:
+	case DW_ATE_boolean:
+	case DW_ATE_complex_float:
+	case DW_ATE_signed_char:
+	case DW_ATE_unsigned_char:
+	case DW_ATE_imaginary_float:
+	case DW_ATE_packed_decimal:
+	case DW_ATE_numeric_string:
+	case DW_ATE_edited:
+	case DW_ATE_signed_fixed:
+	case DW_ATE_unsigned_fixed:
+	case DW_ATE_decimal_float:
+	case DW_ATE_UTF:
+	case DW_ATE_lo_user:
+	case DW_ATE_hi_user:
+	default:
+		RZ_LOG_VERBOSE("Unsupported encoding: %d", encoding);
+		return false;
 	}
 	if (value_type == -1) {
 		return false;
 	}
-	*out = value_type;
+	*out_type = value_type;
 	return true;
 }
 
@@ -917,6 +923,7 @@ RZ_IPI bool Value_shl(RzBinDwarfValue *self, RzBinDwarfValue *rhs, ut64 addr_mas
 		result->u64 = (v2 >= 64) ? 0 : self->u64 << v2;
 		break;
 	default:
+		RZ_LOG_VERBOSE("Value_shl: unknown type %d\n", self->type)
 		return false; // error handling (integral type required)
 	}
 	return true;

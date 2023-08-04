@@ -14,12 +14,30 @@ typedef struct dwarf_parse_context_t {
 	RzBinDwarf *dw;
 } Context;
 
-static RzType *type_parse_from_offset_internal(Context *ctx, ut64 offset,
-	RZ_NULLABLE ut64 *size, RZ_NONNULL SetU *visited);
-static RzType *type_parse_from_offset(Context *ctx, ut64 offset, ut64 *size);
-static bool enum_children_parse(Context *ctx, const RzBinDwarfDie *die, RzBaseType *base_type);
-static bool struct_union_children_parse(Context *ctx, const RzBinDwarfDie *die, RzBaseType *base_type);
-static bool function_parse(Context *ctx, RzBinDwarfDie *die);
+static RZ_OWN RzType *type_parse_from_offset_internal(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	ut64 offset,
+	RZ_BORROW RZ_OUT RZ_NULLABLE ut64 *size,
+	RZ_BORROW RZ_IN RZ_NONNULL SetU *visited);
+
+static RZ_OWN RzType *type_parse_from_offset(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	ut64 offset,
+	RZ_BORROW RZ_OUT RZ_NULLABLE ut64 *size);
+
+static bool enum_children_parse(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	RZ_BORROW RZ_IN RZ_NONNULL const RzBinDwarfDie *die,
+	RZ_BORROW RZ_OUT RZ_NONNULL RzBaseType *base_type);
+
+static bool struct_union_children_parse(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	RZ_BORROW RZ_IN RZ_NONNULL const RzBinDwarfDie *die,
+	RZ_BORROW RZ_OUT RZ_NONNULL RzBaseType *base_type);
+
+static bool function_parse(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	RZ_BORROW RZ_IN RZ_NONNULL const RzBinDwarfDie *die);
 
 /* For some languages linkage name is more informative like C++,
    but for Rust it's rubbish and the normal name is fine */
@@ -499,8 +517,12 @@ static const char *map_dwarf_register_dummy(ut32 reg_num) {
 	return rz_strf(buf, "reg%u", reg_num);
 }
 
-/* returns string literal register name!
-   TODO add more arches                 */
+/**
+ * \brief Returns a function that maps a DWARF register number to a register name
+ * \param arch The architecture name
+ * \param bits The architecture bitness
+ * \return The function that maps a DWARF register number to a register name
+ */
 static DWARF_RegisterMapping dwarf_register_mapping_query(RZ_NONNULL char *arch, int bits) {
 	if (!strcmp(arch, "x86")) {
 		if (bits == 64) {
@@ -678,7 +700,8 @@ static RzBaseType *base_type_new_from_die(Context *ctx, const RzBinDwarfDie *die
 		}
 		break;
 	case RZ_BASE_TYPE_KIND_TYPEDEF:
-	case RZ_BASE_TYPE_KIND_ATOMIC: break;
+	case RZ_BASE_TYPE_KIND_ATOMIC:
+	default: break;
 	}
 
 	if (!rz_type_db_update_base_type(ctx->analysis->typedb, btype)) {
@@ -734,11 +757,19 @@ static ut64 array_count_parse(Context *ctx, RzBinDwarfDie *die) {
 }
 
 /**
- * Parse the die's DW_AT_type type or return a void type or NULL if \p type_idx == -1
- *
+ * \brief Parse type from a DWARF DIE and write the size to \p size if not NULL
+ * \param ctx the context
+ * \param die the DIE to parse
  * \param allow_void whether to return a void type instead of NULL if there is no type defined
+ * \param size pointer to write the size to or NULL
+ * \return return RzType* or NULL if \p type_idx == -1
  */
-static RzType *type_parse_from_die_internal(Context *ctx, RzBinDwarfDie *die, bool allow_void, RZ_NULLABLE ut64 *size, RZ_NONNULL SetU *visited) {
+static RzType *type_parse_from_die_internal(
+	Context *ctx,
+	RzBinDwarfDie *die,
+	bool allow_void,
+	RZ_NULLABLE ut64 *size,
+	RZ_NONNULL SetU *visited) {
 	RzBinDwarfAttr *attr = rz_bin_dwarf_die_get_attr(die, DW_AT_type);
 	if (!attr) {
 		if (!allow_void) {
@@ -752,13 +783,16 @@ static RzType *type_parse_from_die_internal(Context *ctx, RzBinDwarfDie *die, bo
 /**
  * \brief Recursively parses type entry of a certain offset and saves type size into *size
  *
- * \param ctx
+ * \param ctx the context
  * \param offset offset of the type entry
  * \param size ptr to size of a type to fill up (can be NULL if unwanted)
  * \return the parsed RzType or NULL on failure
  */
-static RzType *type_parse_from_offset_internal(Context *ctx, ut64 offset,
-	RZ_NULLABLE ut64 *size, RZ_NONNULL SetU *visited) {
+static RZ_OWN RzType *type_parse_from_offset_internal(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	ut64 offset,
+	RZ_BORROW RZ_OUT RZ_NULLABLE ut64 *size,
+	RZ_BORROW RZ_IN RZ_NONNULL SetU *visited) {
 	RzType *ret = ht_up_find(ctx->analysis->debug_info->type_by_offset, offset, NULL);
 	if (ret) {
 		return rz_type_clone(ret);
@@ -893,7 +927,10 @@ end:
 	return ret;
 }
 
-static RzType *type_parse_from_offset(Context *ctx, ut64 offset, ut64 *size) {
+static RZ_OWN RzType *type_parse_from_offset(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	ut64 offset,
+	RZ_BORROW RZ_OUT RZ_NULLABLE ut64 *size) {
 	SetU *visited = set_u_new();
 	if (!visited) {
 		return NULL;
@@ -940,7 +977,7 @@ static RzType *type_parse_from_abstract_origin(Context *ctx, ut64 offset, char *
 
 /**
  * \brief Parses structured entry into *result RzTypeStructMember
- * http://www.dwarfstd.org/doc/DWARF4.pdf#page=102&zoom=100,0,0
+ * https://www.dwarfstd.org/doc/DWARF4.pdf#page=102
  */
 static RzTypeStructMember *struct_member_parse(Context *ctx, RzBinDwarfDie *die, RzTypeStructMember *result) {
 	rz_return_val_if_fail(result, NULL);
@@ -963,7 +1000,7 @@ static RzTypeStructMember *struct_member_parse(Context *ctx, RzBinDwarfDie *die,
 				the beginning of containing entity. If containing entity has
 				a bit offset, member has that bit offset aswell
 				2.: value is a location description
-				http://www.dwarfstd.org/doc/DWARF4.pdf#page=39&zoom=100,0,0
+				https://www.dwarfstd.org/doc/DWARF4.pdf#page=39
 			*/
 			offset = attr->uconstant;
 			break;
@@ -1007,7 +1044,7 @@ cleanup:
  * \brief  Parses a structured entry (structs, classes, unions) into
  *         RzBaseType and saves it using rz_analysis_save_base_type ()
  */
-// http://www.dwarfstd.org/doc/DWARF4.pdf#page=102&zoom=100,0,0
+// https://www.dwarfstd.org/doc/DWARF4.pdf#page=102
 static bool struct_union_children_parse(Context *ctx, const RzBinDwarfDie *die, RzBaseType *base_type) {
 	if (!die->has_children) {
 		return true;
@@ -1045,7 +1082,7 @@ err:
 
 /**
  * \brief  Parses enum entry into *result RzTypeEnumCase
- * http://www.dwarfstd.org/doc/DWARF4.pdf#page=110&zoom=100,0,0
+ * https://www.dwarfstd.org/doc/DWARF4.pdf#page=110
  */
 static RzTypeEnumCase *enumerator_parse(Context *ctx, RzBinDwarfDie *die, RzTypeEnumCase *result) {
 	RzBinDwarfAttr *val_attr = rz_bin_dwarf_die_get_attr(die, DW_AT_const_value);
@@ -1271,7 +1308,7 @@ static inline const char *var_name(RzAnalysisDwarfVariable *v, enum DW_LANG lang
 	return prefer_linkage_name(lang) ? (v->link_name ? v->link_name : v->name) : v->name;
 }
 
-static bool function_var_parse(Context *ctx, RzBinDwarfDie *var_die, RzBinDwarfDie *fn_die, RzAnalysisDwarfVariable *v) {
+static bool function_var_parse(Context *ctx, const RzBinDwarfDie *var_die, const RzBinDwarfDie *fn_die, RzAnalysisDwarfVariable *v) {
 	v->offset = var_die->offset;
 	switch (var_die->tag) {
 	case DW_TAG_formal_parameter:
@@ -1331,7 +1368,7 @@ static bool function_var_parse(Context *ctx, RzBinDwarfDie *var_die, RzBinDwarfD
 	return true;
 }
 
-static bool function_children_parse(Context *ctx, RzBinDwarfDie *die, RzCallable *callable, RzAnalysisDwarfFunction *fn) {
+static bool function_children_parse(Context *ctx, const RzBinDwarfDie *die, RzCallable *callable, RzAnalysisDwarfFunction *fn) {
 	if (!die->has_children) {
 		return false;
 	}
@@ -1391,7 +1428,9 @@ static void function_free(RzAnalysisDwarfFunction *f) {
  * \brief Parse function,it's arguments, variables and
  *        save the information into the Sdb
  */
-static bool function_parse(Context *ctx, RzBinDwarfDie *die) {
+static bool function_parse(
+	RZ_BORROW RZ_IN RZ_NONNULL Context *ctx,
+	RZ_BORROW RZ_IN RZ_NONNULL const RzBinDwarfDie *die) {
 	if (ht_up_find(ctx->analysis->debug_info->function_by_offset, die->offset, NULL)) {
 		return true;
 	}
@@ -1515,7 +1554,6 @@ cleanup:
  */
 RZ_API void rz_analysis_dwarf_process_info(const RzAnalysis *analysis, RzBinDwarf *dw) {
 	rz_return_if_fail(analysis && dw);
-	analysis->debug_info->encoding = dw->encoding;
 	analysis->debug_info->dwarf_register_mapping = dwarf_register_mapping_query(analysis->cpu, analysis->bits);
 	Context ctx = {
 		.analysis = analysis,
