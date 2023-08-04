@@ -901,6 +901,16 @@ RZ_API bool rz_analysis_var_is_arg(RZ_NONNULL RzAnalysisVar *var) {
 		return true;
 	case RZ_ANALYSIS_VAR_KIND_VARIABLE:
 		return false;
+	case RZ_ANALYSIS_VAR_KIND_INVALID: {
+		/**
+		 * If we already have some function arguments from debug information,
+		 * then we don't consider the function arguments of the call convention anymore
+		 */
+		if (var->fcn->has_debuginfo) {
+			return false;
+		}
+		break;
+	}
 	default: break;
 	}
 

@@ -698,6 +698,7 @@ static inline void rz_analysis_var_storage_init_stack(RzAnalysisVarStorage *stor
  * \brief Kind of a variable
  */
 typedef enum rz_analysis_var_kind_t {
+	RZ_ANALYSIS_VAR_KIND_INVALID = 0, ///< Invalid or unspecified variable
 	RZ_ANALYSIS_VAR_KIND_FORMAL_PARAMETER, ///< Variable is function formal parameter
 	RZ_ANALYSIS_VAR_KIND_VARIABLE, ///< Variable is local variable
 } RzAnalysisVarKind;
