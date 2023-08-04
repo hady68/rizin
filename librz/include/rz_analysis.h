@@ -161,12 +161,12 @@ typedef struct rz_analysis_function_t {
 	RZ_DEPRECATE st64 stack; // stack frame size
 	int maxstack;
 	int ninstr;
-	bool is_pure;
-	bool is_variadic;
-	bool has_changed; // true if function may have changed since last anaysis TODO: set this attribute where necessary
-	bool has_debuginfo; ///< true if function has debug informations
-	bool bp_frame;
-	bool is_noreturn; // true if function does not return
+	bool is_pure : 1;
+	bool is_variadic : 1;
+	bool has_changed : 1; // true if function may have changed since last anaysis TODO: set this attribute where necessary
+	bool has_debuginfo : 1; ///< true if function has debug informations
+	bool bp_frame : 1;
+	bool is_noreturn : 1; // true if function does not return
 	int argnum; // number of arguments;
 	RzList /*<RzAnalysisBlock *>*/ *bbs; // TODO: should be RzPVector
 	RzAnalysisFcnMeta meta;

@@ -1753,9 +1753,10 @@ static bool dwarf_integrate_function(void *user, const ut64 k, const void *value
 			continue;
 		}
 		rz_analysis_function_add_var_dwarf(afn, &av, 4);
-	};
+	}
 
 	afn->has_debuginfo = true;
+	afn->is_variadic = fn->has_unspecified_parameters;
 	if (fn->high_pc && afn->meta._max < fn->high_pc) {
 		afn->meta._max = fn->high_pc;
 	}
