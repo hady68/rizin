@@ -24,9 +24,14 @@ static inline cs_mode tricore_cpu_to_cs_mode(const char *cpu_type) {
 	return CS_MODE_TRICORE_162;
 }
 
+static inline ut8 tricore_op_count(cs_insn *insn) {
+	return insn->detail->tricore.op_count;
+}
+
 static inline cs_tricore_op *tricore_get_op(cs_insn *insn, int idx) {
-	if (idx >= insn->detail->tricore.op_count) {
-		rz_warn_if_reached();
+	if (idx >= tricore_op_count(insn)) {
+		RZ_LOG_WARN("failed to get operand%d: \"%s\" [%d]",
+			idx, insn->op_str, tricore_op_count(insn));
 		return NULL;
 	}
 	return &insn->detail->tricore.operands[idx];
@@ -35,7 +40,7 @@ static inline cs_tricore_op *tricore_get_op(cs_insn *insn, int idx) {
 static inline const char *tricore_get_op_regname(csh h, cs_insn *insn, int idx) {
 	cs_tricore_op *op = tricore_get_op(insn, idx);
 	if (op->type != TRICORE_OP_REG) {
-		rz_warn_if_reached();
+		RZ_LOG_WARN("failed to get reg operand: \"%s\"", insn->op_str);
 		return NULL;
 	}
 	return cs_reg_name(h, op->reg);
@@ -44,14 +49,10 @@ static inline const char *tricore_get_op_regname(csh h, cs_insn *insn, int idx) 
 static inline st32 tricore_get_op_imm(cs_insn *insn, int idx) {
 	cs_tricore_op *op = tricore_get_op(insn, idx);
 	if (op->type != TRICORE_OP_IMM) {
-		rz_warn_if_reached();
+		RZ_LOG_WARN("failed to get imm operand: \"%s\"", insn->op_str);
 		return 0;
 	}
 	return op->imm;
-}
-
-static inline ut8 tricore_op_count(cs_insn *insn) {
-	return insn->detail->tricore.op_count;
 }
 
 static inline csh tricore_setup_cs_handle(const char *cpu, const char *features) {
