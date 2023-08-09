@@ -1,13 +1,18 @@
 // SPDX-FileCopyrightText: 2013-2015 pancake <pancake@nopcode.org>
 // SPDX-License-Identifier: LGPL-3.0-only
 
-// instruction set : http://www.tachyonsoft.com/inst390m.htm
+// instruction set: http://www.tachyonsoft.com/inst390m.htm
 
 #include <rz_asm.h>
 #include <rz_lib.h>
 #include <capstone/capstone.h>
 
 static csh cd = 0;
+
+// Define a context structure to store the omode value
+typedef struct {
+    int omode;
+} DisassembleContext;
 
 static bool the_end(void *p) {
 	if (cd) {
@@ -16,19 +21,27 @@ static bool the_end(void *p) {
 	}
 	return true;
 }
-
+// Modified disassemble function
 static int disassemble(RzAsm *a, RzAsmOp *op, const ut8 *buf, int len) {
-	static int omode = 0;
+	 DisassembleContext *ctx = (DisassembleContext *)a->user;
+   	 if (!ctx) {
+        return 0;  // Invalid context
+    }
 	int mode, n, ret;
 	ut64 off = a->pc;
 	cs_insn *insn = NULL;
 	mode = CS_MODE_BIG_ENDIAN;
-	if (cd && mode != omode) {
-		cs_close(&cd);
-		cd = 0;
-	}
-	op->size = 0;
-	omode = mode;
+	
+// Check if omode has changed
+    	if (cd && mode != ctx->omode) {
+        cs_close(&cd);
+        cd = 0;
+  	  }
+   	 op->size = 0;
+
+    // Update omode in the context
+   	 ctx->omode = mode;
+	
 	if (cd == 0) {
 		ret = cs_open(CS_ARCH_SYSZ, mode, &cd);
 		if (ret) {
